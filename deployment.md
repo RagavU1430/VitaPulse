@@ -18,13 +18,16 @@ This guide provides instructions to configure, initialize, and deploy the VitaPu
 2. **Initialize the Schema:**
    - In Supabase, go to the **SQL Editor** from the left navigation bar.
    - Click **New Query**.
-   - Copy the contents of the `src/main/resources/schema.sql` file and run it. This will drop any existing tables and construct PostgreSQL-compatible tables (`users`, `doctors`, `patients`, `doctor_slots`, `appointments`, `feedback`, `audit_logs`).
+   - You have two options for the database schema:
+     - **Option A (Standard/Legacy Compatibility - Recommended for running code directly):** Copy the contents of the `src/main/resources/schema.sql` file and run it. This creates tables with auto-incrementing serial IDs (`users`, `doctors`, `patients`, `doctor_slots`, `appointments`, `feedback`, `audit_logs`).
+     - **Option B (Relational UUID Schema - Recommended for new Supabase architecture):** Copy the contents of the `src/main/resources/supabase_schema.sql` file and run it. This creates tables with UUID primary and foreign keys, relationship constraints, Row Level Security (RLS) policies, and performance indexes.
 
-3. **Insert Seed Data:**
-   - Open another **New Query** tab in the SQL Editor.
+3. **Insert Seed Data (For Option A only):**
+   - If you used `schema.sql` (Option A), open another **New Query** tab in the SQL Editor.
    - Copy the contents of the `src/main/resources/data.sql` file and run it. This populates your database with:
      - An Admin account: `admin@vitapulse.io` (Password: `admin123`)
      - Default doctors, patients, doctor slots, appointments, feedback records, and audit logs.
+   - *Note: `supabase_schema.sql` (Option B) already contains its own seed data built directly into the script, so you do not need to run a separate data script.*
 
 4. **Obtain Connection String:**
    - Go to **Project Settings** > **Database**.
