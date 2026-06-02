@@ -1,0 +1,154 @@
+package com.ragav.hospitalmanagement.ai;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class GeminiService {
+
+    private final RestTemplate restTemplate;
+    private final String apiKey;
+
+    // Constructor injection for API key
+    public GeminiService(@Value("${gemini.api.key}") String apiKey) {
+        this.apiKey = apiKey;
+        this.restTemplate = new RestTemplate();
+    }
+
+    public String getChatResponse(String userMessage) {
+        int maxRetries = 3;
+        int[] waitSeconds = { 2, 4, 8 };
+        Exception lastException = null;
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                // Verify API key is not null or empty
+                if (apiKey == null || apiKey.trim().isEmpty()) {
+                    throw new IllegalStateException(
+                            "Gemini API Key is null or empty. Please check your application.properties file.");
+                }
+
+                // Print first 10 characters of API key safely
+                if (attempt == 0) {
+                    if (apiKey.length() >= 10) {
+                        System.out.println("API Key loaded: " + apiKey.substring(0, 10));
+                    } else {
+                        System.out.println("API Key loaded: " + apiKey);
+                    }
+                }
+
+                String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key="
+                        + apiKey;
+                if (attempt == 0) {
+                    System.out.println("Gemini URL: " + url);
+                }
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+
+                Map<String, Object> textPart = new HashMap<>();
+                textPart.put("text", userMessage);
+
+                Map<String, Object> partsMap = new HashMap<>();
+                partsMap.put("parts", List.of(textPart));
+
+                Map<String, Object> systemPart = new HashMap<>();
+                systemPart.put("text", "You are a professional Hospital Management Assistant. Your duties are to:\n" +
+                        "- Answer hospital-related questions accurately and politely.\n" +
+                        "- Explain the appointment booking process (e.g., users select a doctor, select an available slot, and book an appointment).\n"
+                        +
+                        "- Guide patients and assist them with general queries.\n" +
+                        "- Suggest which specialist to consult based on the symptoms they describe (e.g., Cardiologist for chest pain, Dermatologist for skin rashes, Pediatrician for child issues, etc.).\n"
+                        +
+                        "- Summarize appointment information clearly when requested.");
+
+                Map<String, Object> systemInstructionMap = new HashMap<>();
+                systemInstructionMap.put("parts", List.of(systemPart));
+
+                Map<String, Object> requestBody = new HashMap<>();
+                requestBody.put("contents", List.of(partsMap));
+                requestBody.put("systemInstruction", systemInstructionMap);
+
+                HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+                ResponseEntity<Map> responseEntity = restTemplate.postForEntity(url, entity, Map.class);
+                Map responseBody = responseEntity.getBody();
+
+                if (responseBody != null && responseBody.containsKey("candidates")) {
+                    List candidates = (List) responseBody.get("candidates");
+                    if (candidates != null && !candidates.isEmpty()) {
+                        Map candidate = (Map) candidates.get(0);
+                        if (candidate != null && candidate.containsKey("content")) {
+                            Map content = (Map) candidate.get("content");
+                            if (content != null && content.containsKey("parts")) {
+                                List parts = (List) content.get("parts");
+                                if (parts != null && !parts.isEmpty()) {
+                                    Map part = (Map) parts.get(0);
+                                    if (part != null && part.containsKey("text")) {
+                                        return (String) part.get("text");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return "No response generated by the assistant.";
+            } catch (org.springframework.web.client.HttpStatusCodeException e) {
+                lastException = e;
+                System.err.println("Gemini API call failed (HTTP " + e.getStatusCode() + ") on attempt " + (attempt + 1)
+                        + ". Error: " + e.getResponseBodyAsString());
+
+                // If it is 503 Service Unavailable and we have retries left, wait and retry
+                if (e.getStatusCode().value() == 503 && attempt < maxRetries) {
+                    int sleepSecs = waitSeconds[attempt];
+                    System.out.println("HTTP 503 Service Unavailable received. Retrying in " + sleepSecs
+                            + " seconds (Attempt " + (attempt + 1) + " of " + maxRetries + ")...");
+                    try {
+                        Thread.sleep(sleepSecs * 1000L);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            } catch (Exception e) {
+                lastException = e;
+                System.err.println(
+                        "Gemini API call encountered an error on attempt " + (attempt + 1) + ": " + e.getMessage());
+                e.printStackTrace();
+                break;
+            }
+        }
+
+        // If we reach here, all retries failed or hit a non-retryable exception
+        if (lastException instanceof org.springframework.web.client.HttpStatusCodeException) {
+            org.springframework.web.client.HttpStatusCodeException hsse = (org.springframework.web.client.HttpStatusCodeException) lastException;
+            if (hsse.getStatusCode().value() == 503) {
+                return "Healthcare Assistant is temporarily busy. Please try again in a few moments.";
+            }
+        }
+        return "Error communicating with AI Assistant: "
+                + (lastException != null ? lastException.getMessage() : "Unknown error");
+    }
+
+    public boolean testConnection() {
+        try {
+            // Re-use getChatResponse to test full integration flow
+            String reply = getChatResponse("ping");
+            return reply != null && !reply.startsWith("Error communicating with AI Assistant:");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+}
